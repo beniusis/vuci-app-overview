@@ -8,31 +8,18 @@
       :width="400"
       @close="$emit('close')"
     >
-      <div class="sections">
-        <div class="element">
-          <span>System Card</span>
-          <a-switch />
-        </div>
-        <div class="element">
-          <span>LAN</span>
-          <a-switch />
-        </div>
-        <div class="element">
-          <span>WAN</span>
-          <a-switch />
-        </div>
-        <div class="element">
-          <span>Recent Network Events</span>
-          <a-switch />
-        </div>
-        <div class="element">
-          <span>Recent System Events</span>
-          <a-switch />
-        </div>
-        <div class="element">
-          <a-button type="primary" @click="$emit('close')">Submit</a-button>
-        </div>
-      </div>
+      <vuci-form :uciConfig="config.name" @applied="$emit('saved')">
+        <vuci-named-section :name="config.section" v-slot="{ s }">
+          <vuci-form-item-switch
+            v-for="card in cards"
+            :uci-section="s"
+            :key="card.title"
+            :label="card.title"
+            :name="card.title.replaceAll(' ', '_')"
+            class="element"
+          />
+        </vuci-named-section>
+      </vuci-form>
     </a-drawer>
   </div>
 </template>
@@ -44,6 +31,18 @@ export default {
     visible: {
       type: Boolean,
       default: false
+    },
+    cards: {
+      type: Array,
+      default: null
+    }
+  },
+  data () {
+    return {
+      config: {
+        name: 'system_overview',
+        section: 'visibility'
+      }
     }
   }
 }
@@ -52,20 +51,19 @@ export default {
 <style>
 .settings-button {
   position: fixed;
-  right: 32.5px;
-  top: 75px;
-}
-
-.sections {
-  display: flex;
-  flex-direction: column;
+  right: 22.5px;
+  top: 62.5px;
 }
 
 .element {
   display: flex;
-  flex-direction: row;
-  gap: 20px;
-  justify-content: center;
-  margin-top: 50px;
+  margin: 0;
+}
+
+.element .ant-form-item-label {
+  width: 200px;
+  font-weight: bold;
+  text-align: right;
+  text-transform: capitalize;
 }
 </style>

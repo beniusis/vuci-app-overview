@@ -15,10 +15,15 @@
     :bodyStyle="{
       color: 'rgba(0, 0, 0, 0.7)'
     }"
+    :hoverable="true"
+    draggable
+    @dragstart="drag($event, title)"
+    @drop="drop($event, title)"
+    @dragover="prevent($event)"
   >
   <component v-if="head" slot="extra" :is="head.component" v-bind="head.props" />
   <div class="body">
-    <div v-for="section in sections" :key="section.title" class="section">
+    <div v-for="section in sections" :key="section.id" class="section">
       <div class="title">{{ section.title }}</div>
       <div v-if="section.components" class="section-components">
         <component v-for="component in section.components"
@@ -55,19 +60,27 @@ export default {
       default: null
     }
   },
-  data () {
-    return {
-    }
-  },
   methods: {
+    drag (event, title) {
+      event.dataTransfer.setData('title', title)
+    },
+
+    drop (event, title) {
+      const dropped = event.dataTransfer.getData('title')
+      this.$emit('dragged', { dragged: dropped, after: title })
+    },
+
+    prevent (event) {
+      event.preventDefault()
+    }
   }
 }
 </script>
 
 <style>
 .card {
-  width: 300px;
-  height: 280px;
+  width: 270px;
+  height: 320px;
   border-radius: 5px;
 }
 

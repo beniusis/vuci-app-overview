@@ -44,7 +44,7 @@ export default {
     }
   },
   timers: {
-    renderSystemCard: { time: 1000, autostart: false, immediate: true, repeat: true }
+    update: { time: 1000, autostart: true, immediate: false, repeat: true }
   },
   methods: {
     getSystemData () {
@@ -57,6 +57,69 @@ export default {
 
     getEventsData (table, eventsCount) {
       return this.$log.get({ table: table, limit: eventsCount })
+    },
+
+    async update () {
+      const index = this.positionedCards.findIndex(card => card.title === 'System')
+      const updatedSystemCard = await this.systemCardData()
+      this.cards[index].head.props.amount = this.cpuPercentage
+      this.cards[index].sections = updatedSystemCard.sections
+    },
+
+    async systemCardData () {
+      this.updateCpuUsage()
+      const systemData = await this.getSystemData()
+      const systemCard = {
+        title: 'System',
+        head: {
+          component: 'StatusBar',
+          props: {
+            label: 'CPU load',
+            amount: this.cpuPercentage
+          }
+        },
+        sections: [
+          {
+            id: 0,
+            title: 'Router uptime',
+            data: '%t'.format(systemData.uptime)
+          },
+          {
+            id: 1,
+            title: 'Local device time',
+            data: new Date(systemData.localtime * 1000).toLocaleString('lt-LT')
+          },
+          {
+            id: 2,
+            title: 'Memory usage',
+            components: [
+              {
+                name: 'StatusBar',
+                props: {
+                  label: 'RAM',
+                  amount: Math.floor(((systemData.memory.total - systemData.memory.free) / systemData.memory.total) * 100)
+                }
+              },
+              {
+                name: 'StatusBar',
+                props: {
+                  label: 'FLASH',
+                  amount: Math.floor(((systemData.disk.root.total - systemData.disk.root.free) / systemData.disk.root.total) * 100)
+                }
+              }
+            ]
+          },
+          {
+            id: 3,
+            title: 'Firmware version',
+            data: systemData.release.revision
+          }
+        ],
+        order: this.cardsOrder.system,
+        visible: this.cardsVisibility.system
+      }
+
+      return systemCard
     },
 
     async getCardsVisibility () {
@@ -127,58 +190,7 @@ export default {
     },
 
     async renderSystemCard () {
-      this.updateCpuUsage()
-      const systemData = await this.getSystemData()
-      const systemCard = {
-        title: 'System',
-        head: {
-          component: 'StatusBar',
-          props: {
-            label: 'CPU load',
-            amount: this.cpuPercentage
-          }
-        },
-        sections: [
-          {
-            id: 0,
-            title: 'Router uptime',
-            data: '%t'.format(systemData.uptime)
-          },
-          {
-            id: 1,
-            title: 'Local device time',
-            data: new Date(systemData.localtime * 1000).toLocaleString('lt-LT')
-          },
-          {
-            id: 2,
-            title: 'Memory usage',
-            components: [
-              {
-                name: 'StatusBar',
-                props: {
-                  label: 'RAM',
-                  amount: Math.floor(((systemData.memory.total - systemData.memory.free) / systemData.memory.total) * 100)
-                }
-              },
-              {
-                name: 'StatusBar',
-                props: {
-                  label: 'FLASH',
-                  amount: Math.floor(((systemData.disk.root.total - systemData.disk.root.free) / systemData.disk.root.total) * 100)
-                }
-              }
-            ]
-          },
-          {
-            id: 3,
-            title: 'Firmware version',
-            data: systemData.release.revision
-          }
-        ],
-        order: this.cardsOrder.system,
-        visible: this.cardsVisibility.system
-      }
-      this.cards.push(systemCard)
+      this.cards.push(await this.systemCardData())
     },
 
     updateCpuUsage () {
@@ -306,6 +318,10 @@ export default {
 .cards {
   display: flex;
   flex-direction: row;
-  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 40px;
+  margin: 20px;
+  max-width: 1400px;
 }
 </style>

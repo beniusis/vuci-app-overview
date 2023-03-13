@@ -1,9 +1,12 @@
 <template>
   <div>
     <div class="cards">
-      <div v-for="card in cards" :key="card.title">
-        <Card v-if="card.visible === '1'" v-bind="card" @dragged="reorderCards" />
-      </div>
+      <Card
+        v-for="card in positionedCards"
+        :key="card.title"
+        v-bind="card"
+        @dragged="reorderCards"
+      />
     </div>
     <Drawer
       :visible="settingsVisible"
@@ -34,6 +37,14 @@ export default {
       cardsVisibility: {},
       cardsOrder: {}
     }
+  },
+  computed: {
+    positionedCards () {
+      return [...this.cards].sort((a, b) => a.order - b.order).filter(c => c.visible === '1')
+    }
+  },
+  timers: {
+    renderSystemCard: { time: 1000, autostart: false, immediate: true, repeat: true }
   },
   methods: {
     getSystemData () {
@@ -68,6 +79,7 @@ export default {
             systemEvents: info[0].Recent_system_events
           }
         })
+        .catch(err => this.$message.error(err.message))
     },
 
     async getCardsOrder () {
@@ -93,22 +105,25 @@ export default {
     },
 
     async reorderCards ({ dragged, after }) {
-      console.log('From ' + dragged + ' to ' + after)
-      const draggedCardIndex = this.cards.findIndex(card => card.title === dragged)
       const afterCardIndex = this.cards.findIndex(card => card.title === after)
-      console.log(draggedCardIndex + ' ' + afterCardIndex)
+      const draggedCardIndex = this.cards.findIndex(card => card.title === dragged)
+
+      const afterOrder = this.cards[draggedCardIndex].order
+      const previousOrder = this.cards[afterCardIndex].order
+
+      this.cards[afterCardIndex].order = afterOrder
+      this.cards[draggedCardIndex].order = previousOrder
+
       this.$spin()
       await this.$uci.load('system_overview')
         .then(() => {
-          this.$uci.set('system_overview', 'position', dragged.replaceAll(' ', '_'), afterCardIndex)
-          this.$uci.set('system_overview', 'position', after.replaceAll(' ', '_'), draggedCardIndex)
+          this.$uci.set('system_overview', 'position', dragged.replaceAll(' ', '_'), previousOrder)
+          this.$uci.set('system_overview', 'position', after.replaceAll(' ', '_'), afterOrder)
         })
         .then(() => this.$uci.save())
         .then(() => this.$uci.apply())
-        .finally(() => {
-          this.$spin(false)
-          this.refresh(100)
-        })
+        .catch(err => this.$message.error(err.message))
+        .finally(() => this.$spin(false))
     },
 
     async renderSystemCard () {
@@ -163,11 +178,11 @@ export default {
         order: this.cardsOrder.system,
         visible: this.cardsVisibility.system
       }
-      // this.cards.push(systemCard)
-      this.cards.splice(systemCard.order, 0, systemCard)
+      this.cards.push(systemCard)
     },
 
     updateCpuUsage () {
+      // method from vuci-app-home application
       this.$rpc.call('system', 'cpu_time').then(times => {
         if (!this.lastCPUTime) {
           this.cpuPercentage = 0
@@ -217,8 +232,7 @@ export default {
             order: this.cardsOrder.interfaces[idx].order,
             visible: this.cardsVisibility.interfaces[idx].visibility
           }
-          // this.cards.push(interfaceCard)
-          this.cards.splice(interfaceCard.order, 0, interfaceCard)
+          this.cards.push(interfaceCard)
         }
       })
     },
@@ -237,8 +251,7 @@ export default {
         order: this.cardsOrder.networkEvents,
         visible: this.cardsVisibility.networkEvents
       }
-      // this.cards.push(networkEventsCard)
-      this.cards.splice(networkEventsCard.order, 0, networkEventsCard)
+      this.cards.push(networkEventsCard)
     },
 
     async renderSystemEventsCard () {
@@ -255,14 +268,16 @@ export default {
         order: this.cardsOrder.systemEvents,
         visible: this.cardsVisibility.systemEvents
       }
-      // this.cards.push(systemEventsCard)
-      this.cards.splice(systemEventsCard.order, 0, systemEventsCard)
+      this.cards.push(systemEventsCard)
     },
 
-    refresh (time) {
-      setTimeout(() => {
-        this.$router.go(0)
-      }, time)
+    async renderCards () {
+      await this.getCardsOrder()
+        .then(() => this.getCardsVisibility())
+        .then(() => this.renderSystemCard())
+        .then(() => this.renderInterfaceCards())
+        .then(() => this.renderNetworkEventsCard())
+        .then(() => this.renderSystemEventsCard())
     },
 
     openSettings () {
@@ -275,17 +290,14 @@ export default {
 
     saveSettings () {
       this.settingsVisible = false
-      this.refresh(1000)
+      setTimeout(() => {
+        this.$router.go(0)
+      }, 1000)
     }
   },
 
   created () {
-    this.getCardsOrder()
-      .then(() => this.getCardsVisibility())
-      .then(() => this.renderSystemCard())
-      .then(() => this.renderInterfaceCards())
-      .then(() => this.renderNetworkEventsCard())
-      .then(() => this.renderSystemEventsCard())
+    this.renderCards()
   }
 }
 </script>

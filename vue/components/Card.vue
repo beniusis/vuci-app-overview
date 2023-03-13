@@ -19,7 +19,8 @@
     draggable
     @dragstart="drag($event, title)"
     @drop="drop($event, title)"
-    @dragover="prevent($event)"
+    @dragover.prevent
+    @dragenter.prevent
   >
   <component v-if="head" slot="extra" :is="head.component" v-bind="head.props" />
   <div class="body">
@@ -68,10 +69,6 @@ export default {
     drop (event, title) {
       const dropped = event.dataTransfer.getData('title')
       this.$emit('dragged', { dragged: dropped, after: title })
-    },
-
-    prevent (event) {
-      event.preventDefault()
     }
   }
 }

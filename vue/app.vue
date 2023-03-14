@@ -44,7 +44,7 @@ export default {
     }
   },
   timers: {
-    updateSystemCard: { time: 1000, autostart: true, immediate: false, repeat: true },
+    updateSystemCard: { time: 5000, autostart: true, immediate: false, repeat: true },
     updateConfigFileData: { time: 10000, autostart: true, immediate: false, repeat: true }
   },
   methods: {

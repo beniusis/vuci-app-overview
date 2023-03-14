@@ -49,8 +49,8 @@ export default {
   },
   methods: {
     async updateConfigFileData () {
-      this.remove(await this.getVisibilitySectionInfo(), 'visibility')
-      this.remove(await this.getPositionSectionInfo(), 'position')
+      this.remove(await this.getSectionInfo('visibility'), 'visibility')
+      this.remove(await this.getSectionInfo('position'), 'position')
     },
 
     remove (info, section) {
@@ -87,20 +87,18 @@ export default {
       return Number(this.cardsOrder.at(-1)[1])
     },
 
-    getVisibilitySectionInfo () {
+    getSectionInfo (section) {
       return this.$uci.load('system_overview')
         .then(() => this.$uci.sections('system_overview')
-          .filter(s => s['.name'] === 'visibility'))
+          .filter(s => s['.name'] === section))
     },
 
-    getPositionSectionInfo () {
-      return this.$uci.load('system_overview')
-        .then(() => this.$uci.sections('system_overview')
-          .filter(s => s['.name'] === 'position'))
+    findCardIndex (title) {
+      return this.cards.findIndex(card => card.title === title)
     },
 
     async getCardsVisibility () {
-      const visibilityInfo = await this.getVisibilitySectionInfo()
+      const visibilityInfo = await this.getSectionInfo('visibility')
 
       if (visibilityInfo.length < 1) return
 
@@ -112,7 +110,7 @@ export default {
     },
 
     async getCardsPositions () {
-      const positionInfo = await this.getPositionSectionInfo()
+      const positionInfo = await this.getSectionInfo('position')
 
       if (positionInfo.length < 1) return
 
@@ -249,10 +247,6 @@ export default {
 
     async renderSystemCard () {
       this.cards.push(await this.generateSystemCardData())
-    },
-
-    findCardIndex (title) {
-      return this.cards.findIndex(card => card.title === title)
     },
 
     async updateSystemCard () {

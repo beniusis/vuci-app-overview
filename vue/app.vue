@@ -5,7 +5,7 @@
         v-for="card in positionedCards"
         :key="card.title"
         v-bind="card"
-        @dragged="reorderCards"
+        @dragged="repositionCards"
       />
     </div>
     <Drawer
@@ -34,19 +34,42 @@ export default {
       eventsLimit: 4,
       lastCPUTime: null,
       settingsVisible: false,
-      cardsVisibility: {},
-      cardsOrder: {}
+      cardsVisibility: [],
+      cardsOrder: []
     }
   },
   computed: {
     positionedCards () {
-      return [...this.cards].sort((a, b) => a.order - b.order).filter(c => c.visible === '1')
+      return [...this.cards].sort((a, b) => a.order - b.order).filter(c => c.visibility === '1')
     }
   },
   timers: {
-    update: { time: 1000, autostart: true, immediate: false, repeat: true }
+    updateSystemCard: { time: 1000, autostart: true, immediate: false, repeat: true },
+    updateConfigFileData: { time: 10000, autostart: true, immediate: false, repeat: true }
   },
   methods: {
+    async updateConfigFileData () {
+      this.remove(await this.getVisibilitySectionInfo(), 'visibility')
+      this.remove(await this.getPositionSectionInfo(), 'position')
+    },
+
+    remove (info, section) {
+      Object.keys(info[0]).map((opt) => {
+        if (!opt[0].startsWith('.')) {
+          const index = this.cards.findIndex(card => card.title.replaceAll(' ', '_') === opt)
+          if (index === -1) {
+            this.$spin()
+            this.$uci.load('system_overview')
+              .then(() => this.$uci.del('system_overview', section, opt))
+              .then(() => this.$uci.save())
+              .then(() => this.$uci.apply())
+              .catch(err => this.$message.error(err.message))
+              .finally(() => this.$spin(false))
+          }
+        }
+      })
+    },
+
     getSystemData () {
       return this.$system.getInfo()
     },
@@ -59,17 +82,121 @@ export default {
       return this.$log.get({ table: table, limit: eventsCount })
     },
 
-    async update () {
-      const index = this.positionedCards.findIndex(card => card.title === 'System')
-      const updatedSystemCard = await this.systemCardData()
-      this.cards[index].head.props.amount = this.cpuPercentage
-      this.cards[index].sections = updatedSystemCard.sections
+    getLastPositionOfOrderedCards () {
+      this.cardsOrder.sort((a, b) => a[1] - b[1])
+      return Number(this.cardsOrder.at(-1)[1])
     },
 
-    async systemCardData () {
+    getVisibilitySectionInfo () {
+      return this.$uci.load('system_overview')
+        .then(() => this.$uci.sections('system_overview')
+          .filter(s => s['.name'] === 'visibility'))
+    },
+
+    getPositionSectionInfo () {
+      return this.$uci.load('system_overview')
+        .then(() => this.$uci.sections('system_overview')
+          .filter(s => s['.name'] === 'position'))
+    },
+
+    async getCardsVisibility () {
+      const visibilityInfo = await this.getVisibilitySectionInfo()
+
+      if (visibilityInfo.length < 1) return
+
+      Object.entries(visibilityInfo[0]).map((opt) => {
+        if (!opt[0].startsWith('.')) {
+          this.cardsVisibility.push(opt)
+        }
+      })
+    },
+
+    async getCardsPositions () {
+      const positionInfo = await this.getPositionSectionInfo()
+
+      if (positionInfo.length < 1) return
+
+      Object.entries(positionInfo[0]).map((opt) => {
+        if (!opt[0].startsWith('.')) {
+          this.cardsOrder.push(opt)
+        }
+      })
+    },
+
+    getCardOrder (name) {
+      let order = 0
+      const card = this.cardsOrder.filter(order => order[0] === name)
+      if (card.length > 0) {
+        order = card[0][1]
+      } else {
+        order = this.getLastPositionOfOrderedCards() + 1
+      }
+      return order
+    },
+
+    getCardVisibility (name) {
+      let visibility = 0
+      const card = this.cardsVisibility.filter(visible => visible[0] === name)
+      if (card.length > 0) {
+        visibility = card[0][1]
+      }
+      return visibility
+    },
+
+    async repositionCards ({ dragged, after }) {
+      const afterCardIndex = this.cards.findIndex(card => card.title === after)
+      const draggedCardIndex = this.cards.findIndex(card => card.title === dragged)
+
+      const afterOrder = this.cards[draggedCardIndex].order
+      const previousOrder = this.cards[afterCardIndex].order
+
+      this.cards[afterCardIndex].order = afterOrder
+      this.cards[draggedCardIndex].order = previousOrder
+
+      this.$spin()
+      await this.$uci.load('system_overview')
+        .then(() => {
+          this.$uci.set('system_overview', 'position', dragged.replaceAll(' ', '_'), previousOrder)
+          this.$uci.set('system_overview', 'position', after.replaceAll(' ', '_'), afterOrder)
+        })
+        .then(() => this.$uci.save())
+        .then(() => this.$uci.apply())
+        .catch(err => this.$message.error(err.message))
+        .finally(() => this.$spin(false))
+    },
+
+    updateCpuUsage () {
+      // method from vuci-app-home application
+      this.$rpc.call('system', 'cpu_time').then(times => {
+        if (!this.lastCPUTime) {
+          this.cpuPercentage = 0
+          this.lastCPUTime = times
+          return
+        }
+
+        const idle1 = this.lastCPUTime[3]
+        const idle2 = times[3]
+
+        let total1 = 0
+        let total2 = 0
+
+        this.lastCPUTime.forEach(t => {
+          total1 += t
+        })
+
+        times.forEach(t => {
+          total2 += t
+        })
+
+        this.cpuPercentage = Math.floor(((total2 - total1 - (idle2 - idle1)) / (total2 - total1)) * 100)
+        this.lastCPUTime = times
+      })
+    },
+
+    async generateSystemCardData () {
       this.updateCpuUsage()
       const systemData = await this.getSystemData()
-      const systemCard = {
+      return {
         title: 'System',
         head: {
           component: 'StatusBar',
@@ -115,181 +242,83 @@ export default {
             data: systemData.release.revision
           }
         ],
-        order: this.cardsOrder.system,
-        visible: this.cardsVisibility.system
+        visibility: this.getCardVisibility('System'),
+        order: this.getCardOrder('System')
       }
-
-      return systemCard
-    },
-
-    async getCardsVisibility () {
-      await this.$uci.load('system_overview')
-        .then(() => this.$uci.sections('system_overview').filter(s => s['.name'] === 'visibility'))
-        .then(info => {
-          this.cardsVisibility = {
-            system: info[0].System,
-            interfaces: [
-              {
-                name: 'lan',
-                visibility: info[0].lan
-              },
-              {
-                name: 'wan',
-                visibility: info[0].wan
-              }
-            ],
-            networkEvents: info[0].Recent_network_events,
-            systemEvents: info[0].Recent_system_events
-          }
-        })
-        .catch(err => this.$message.error(err.message))
-    },
-
-    async getCardsOrder () {
-      await this.$uci.load('system_overview')
-        .then(() => this.$uci.sections('system_overview').filter(s => s['.name'] === 'position'))
-        .then(info => {
-          this.cardsOrder = {
-            system: info[0].System,
-            interfaces: [
-              {
-                name: 'lan',
-                order: info[0].lan
-              },
-              {
-                name: 'wan',
-                order: info[0].wan
-              }
-            ],
-            networkEvents: info[0].Recent_network_events,
-            systemEvents: info[0].Recent_system_events
-          }
-        })
-    },
-
-    async reorderCards ({ dragged, after }) {
-      const afterCardIndex = this.cards.findIndex(card => card.title === after)
-      const draggedCardIndex = this.cards.findIndex(card => card.title === dragged)
-
-      const afterOrder = this.cards[draggedCardIndex].order
-      const previousOrder = this.cards[afterCardIndex].order
-
-      this.cards[afterCardIndex].order = afterOrder
-      this.cards[draggedCardIndex].order = previousOrder
-
-      this.$spin()
-      await this.$uci.load('system_overview')
-        .then(() => {
-          this.$uci.set('system_overview', 'position', dragged.replaceAll(' ', '_'), previousOrder)
-          this.$uci.set('system_overview', 'position', after.replaceAll(' ', '_'), afterOrder)
-        })
-        .then(() => this.$uci.save())
-        .then(() => this.$uci.apply())
-        .catch(err => this.$message.error(err.message))
-        .finally(() => this.$spin(false))
     },
 
     async renderSystemCard () {
-      this.cards.push(await this.systemCardData())
+      this.cards.push(await this.generateSystemCardData())
     },
 
-    updateCpuUsage () {
-      // method from vuci-app-home application
-      this.$rpc.call('system', 'cpu_time').then(times => {
-        if (!this.lastCPUTime) {
-          this.cpuPercentage = 0
-          this.lastCPUTime = times
-          return
-        }
-
-        const idle1 = this.lastCPUTime[3]
-        const idle2 = times[3]
-
-        let total1 = 0
-        let total2 = 0
-
-        this.lastCPUTime.forEach(t => {
-          total1 += t
-        })
-
-        times.forEach(t => {
-          total2 += t
-        })
-
-        this.cpuPercentage = Math.floor(((total2 - total1 - (idle2 - idle1)) / (total2 - total1)) * 100)
-        this.lastCPUTime = times
-      })
+    findCardIndex (title) {
+      return this.cards.findIndex(card => card.title === title)
     },
 
-    async renderInterfaceCards () {
-      const interfacesData = await this.getInterfacesData()
-      let interfaceCard = {}
+    async updateSystemCard () {
+      const index = this.findCardIndex('System')
+      const updatedSystemCard = await this.generateSystemCardData()
+      this.cards[index].head.props.amount = this.cpuPercentage
+      this.cards[index].sections = updatedSystemCard.sections
+    },
 
-      interfacesData.forEach((iface, idx) => {
-        if (iface.name === 'lan' || iface.name === 'wan') {
-          interfaceCard = {
-            title: iface.name,
-            sections: [
-              {
-                id: 0,
-                title: 'Type',
-                data: iface.status.device
-              },
-              {
-                id: 1,
-                title: 'IP Address',
-                data: iface.getIPv4Addrs().join(', ')
-              }
-            ],
-            order: this.cardsOrder.interfaces[idx].order,
-            visible: this.cardsVisibility.interfaces[idx].visibility
-          }
-          this.cards.push(interfaceCard)
+    async generateInterfaceCardData () {
+      const interfaces = await this.getInterfacesData()
+      return interfaces.map((iface) => {
+        return {
+          title: iface.name,
+          sections: [
+            {
+              id: 0,
+              title: 'Type',
+              data: iface.status.l3_device || 'Interface is down'
+            },
+            {
+              id: 1,
+              title: 'IP Address',
+              data: iface.getIPv4Addrs().join(', ') || 'Interface is down'
+            }
+          ],
+          visibility: this.getCardVisibility(iface.name),
+          order: this.getCardOrder(iface.name)
         }
       })
     },
 
-    async renderNetworkEventsCard () {
-      const networkEventsData = await this.getEventsData('NETWORK', this.eventsLimit)
-      const networkEventsCard = {
-        title: 'Recent network events',
-        sections: Object.values(networkEventsData.log).map(event => {
+    async renderInterfaceCard () {
+      const interfacesData = await this.generateInterfaceCardData()
+      interfacesData.forEach((iface) => {
+        this.cards.push(iface)
+      })
+    },
+
+    async generateEventsCardData (type) {
+      const eventsData = await this.getEventsData(type, this.eventsLimit)
+      return {
+        title: `Recent ${type.toLowerCase()} events`,
+        sections: Object.values(eventsData.log).map(event => {
           return {
             id: event.ID,
             title: new Date(event.TIME * 1000).toLocaleString('lt-LT'),
             data: event.TEXT
           }
         }),
-        order: this.cardsOrder.networkEvents,
-        visible: this.cardsVisibility.networkEvents
+        visibility: this.getCardVisibility(`Recent_${type.toLowerCase()}_events`),
+        order: this.getCardOrder(`Recent_${type.toLowerCase()}_events`)
       }
-      this.cards.push(networkEventsCard)
     },
 
-    async renderSystemEventsCard () {
-      const systemEventsData = await this.getEventsData('SYSTEM', this.eventsLimit)
-      const systemEventsCard = {
-        title: 'Recent system events',
-        sections: Object.values(systemEventsData.log).map(event => {
-          return {
-            id: event.ID,
-            title: new Date(event.TIME * 1000).toLocaleString('lt-LT'),
-            data: event.TEXT
-          }
-        }),
-        order: this.cardsOrder.systemEvents,
-        visible: this.cardsVisibility.systemEvents
-      }
-      this.cards.push(systemEventsCard)
+    async renderEventsCard () {
+      this.cards.push(await this.generateEventsCardData('SYSTEM'))
+      this.cards.push(await this.generateEventsCardData('NETWORK'))
     },
 
     async renderCards () {
-      await this.getCardsOrder()
-        .then(() => this.getCardsVisibility())
+      await this.getCardsVisibility()
+        .then(() => this.getCardsPositions())
         .then(() => this.renderSystemCard())
-        .then(() => this.renderInterfaceCards())
-        .then(() => this.renderNetworkEventsCard())
-        .then(() => this.renderSystemEventsCard())
+        .then(() => this.renderInterfaceCard())
+        .then(() => this.renderEventsCard())
     },
 
     openSettings () {
@@ -308,8 +337,8 @@ export default {
     }
   },
 
-  created () {
-    this.renderCards()
+  async created () {
+    await this.renderCards()
   }
 }
 </script>
